@@ -3,7 +3,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from typing import Literal, Annotated, Optional
 import httpx
-from database import init_db, validate_api_key
+import time
+from database import init_db, validate_api_key, log_usage
 
 
 ################### pydantic model #####################
@@ -40,6 +41,7 @@ def request(
     chatrequest: ChatRequest,
     token: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
 ):
+
     key_record = validate_api_key(token.credentials)
     if key_record is None:
         raise HTTPException(status_code=401, detail="invalid api key")
@@ -50,11 +52,15 @@ def request(
         exclude_none=True
     )  # Exclude_none will ignore optional value
     try:
+        start_time = time.perf_counter()
+
         response = httpx.post(
             url="http://127.0.0.1:8080/v1/chat/completions",
             json=payload,
             timeout=60.0,
         )
+        latency_ms = (time.perf_counter() - start_time) * 1000
+
         response.raise_for_status()
 
     except httpx.ConnectError:  # if the server is off
@@ -65,6 +71,15 @@ def request(
         )
     except httpx.HTTPStatusError:
         raise HTTPException(status_code=502, detail="Model server returned an error")
+    data = response.json()
 
-    return response.json()
-    # return response.json()["choices"][0]["message"]["content"]
+    log_usage(
+        api_key_id=key_record[0],
+        status_code=response.status_code,
+        prompt_tokens=data["usage"]["prompt_tokens"],
+        completion_tokens=data["usage"]["completion_tokens"],
+        total_tokens=data["usage"]["total_tokens"],
+        latency_ms=latency_ms,
+    )
+
+    return data
