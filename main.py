@@ -3,6 +3,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from typing import Literal, Annotated, Optional
 import httpx
+from database import init_db, validate_api_key
 
 
 ################### pydantic model #####################
@@ -14,8 +15,8 @@ class Message(BaseModel):
 # ChatRequest is a list of messages{role and content}
 class ChatRequest(BaseModel):
     messages: list[Message] = Field(min_length=1)
-    model: str | None = None # optional
-    temperature: float | None = None 
+    model: str | None = None  # optional
+    temperature: float | None = None
     max_tokens: int | None = None
     stream: bool | None = False
 
@@ -23,7 +24,9 @@ class ChatRequest(BaseModel):
 ################ fastapi request ##################
 app = FastAPI()
 bearer_scheme = HTTPBearer()
-DEV_API_KEY = "sk-demo-key"
+
+################ Database ##################
+init_db()
 
 
 @app.get("/health")
@@ -31,25 +34,21 @@ def health():
     return {"status": "okay"}
 
 
-"""
-request to local llm to return data
-"""
-
-
+########## request to local llm to return data ##########
 @app.post("/v1/chat/completions")
 def request(
     chatrequest: ChatRequest,
     token: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
 ):
-    if token.credentials != DEV_API_KEY:
+    key_record = validate_api_key(token.credentials)
+    if key_record is None:
         raise HTTPException(status_code=401, detail="invalid api key")
-
-    data = chatrequest.messages
-    # [0][content] is wrong since the pydantic is receving json, they convert it into object
 
     # HTTPX needs JSON instead of Pydantic model
     # HTTPX will seralize into JSON
-    payload = chatrequest.model_dump(exclude_none=True) # Exclude_none will ignore optional value
+    payload = chatrequest.model_dump(
+        exclude_none=True
+    )  # Exclude_none will ignore optional value
     try:
         response = httpx.post(
             url="http://127.0.0.1:8080/v1/chat/completions",
