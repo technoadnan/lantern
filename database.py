@@ -94,6 +94,27 @@ def validate_api_key(api_key):
     return a
 
 
+def disable_api_key(api_id: int):
+    curr = get_db_connection()
+    cursor = curr.cursor()
+    find_id = cursor.execute(
+        """SELECT is_active FROM api_keys WHERE id = ?""", (api_id,)
+    )
+    # if it returns None -> doesn't exist
+    does_exist = find_id.fetchone()
+    if does_exist is None:
+        raise ValueError("id is not present in the Database")
+    # if its already set to 0 -> ignore otherwise run command to make it 0
+    if 0 == does_exist[0]:
+        print(f"{api_id} already exists")
+    else:
+        cursor.execute("""UPDATE api_keys SET is_active = 0 where id = ?""", (api_id,))
+        print(f"succesfully set {api_id} to 0")
+
+    curr.commit()
+    cursor.close()
+
+
 ########### usages_logs #################
 def log_usage(
     api_key_id, status_code, prompt_tokens, completion_tokens, total_tokens, latency_ms
